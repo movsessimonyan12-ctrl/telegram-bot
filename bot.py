@@ -1,9 +1,12 @@
 from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, ConversationHandler, ContextTypes, filters
 import requests
+from dotenv import load_dotenv
+import os
 
-TOKEN = "8702251463:AAE5ql6GTpraeABYYy5Bv0tt3zEvOUjUPoU"
-WEATHER_API_KEY = "119226b1656f7b7aa5b9950d6653f5ba"
+load_dotenv()
+TOKEN = os.getenv("TOKEN")
+WEATHER_API_KEY = os.getenv("WEATHER_API_KEY")
 
 FROM_CUR, TO_CUR, AMOUNT = range(3)
 
@@ -100,6 +103,7 @@ app.add_handler(CommandHandler("rate", rate))
 app.add_handler(conv_handler)
 app.add_handler(MessageHandler(filters.TEXT, message))
 app.run_polling()
+
 
 
 
