@@ -1,6 +1,7 @@
 from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, ConversationHandler, ContextTypes, filters
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from datetime import datetime
 import requests
 from dotenv import load_dotenv
 import os
@@ -12,6 +13,7 @@ WEATHER_API_KEY = os.getenv("WEATHER_API_KEY")
 scheduler = AsyncIOScheduler()
 
 FROM_CUR, TO_CUR, AMOUNT = range(3)
+REMIND_DAY, REMIND_TIME, REMIND_TEXT = range(3, 6)
 CURRENCIES = [["AMD", "USD", "EUR"], ["RUB", "GBP", "JPY"]]
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -78,33 +80,43 @@ async def amount(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Սխալ թիվ։ Փորձեք նորից /convert")
     return ConversationHandler.END
 
+async def remind_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("📅 Ո՞ր օրը։ (օրինակ՝ 21.03.2026)")
+    return REMIND_DAY
+
+async def remind_day(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data["remind_day"] = update.message.text
+    await update.message.reply_text("🕐 Ո՞ր ժամը։ (օրինակ՝ 14:30)")
+    return REMIND_TIME
+
+async def remind_time(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data["remind_time"] = update.message.text
+    await update.message.reply_text("📝 Ի՞նչ հիշեցնեմ։")
+    return REMIND_TEXT
+
+async def remind_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    try:
+        day = context.user_data["remind_day"]
+        time = context.user_data["remind_time"]
+        text = update.message.text
+        chat_id = update.message.chat_id
+        run_date = datetime.strptime(f"{day} {time}", "%d.%m.%Y %H:%M")
+
+        async def send_reminder():
+            await context.bot.send_message(chat_id=chat_id, text=f"🔔 {text}")
+
+        scheduler.add_job(send_reminder, "date", run_date=run_date, id=f"{chat_id}_{run_date}")
+        await update.message.reply_text(f"✅ Կհիշեցնեմ {day}-ին ժամը {time}-ին՝ {text}")
+    except:
+        await update.message.reply_text("Սխալ։ Փորձեք նորից /remind")
+    return ConversationHandler.END
+
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Չեղարկվեց։", reply_markup=ReplyKeyboardRemove())
     return ConversationHandler.END
 
-async def remind(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if len(context.args) < 2:
-        await update.message.reply_text("Օրինակ՝ /remind 10 Զանգել բժշկին\n(10 - րոպե)")
-        return
-    try:
-        minutes = int(context.args[0])
-        text = " ".join(context.args[1:])
-        chat_id = update.message.chat_id
-
-        async def send_reminder():
-            await context.bot.send_message(chat_id=chat_id, text=f"🔔 Հիշեցում՝ {text}")
-
-        scheduler.add_job(send_reminder, "date", run_date=None, misfire_grace_time=60, id=str(chat_id))
-        from datetime import datetime, timedelta
-        run_time = datetime.now() + timedelta(minutes=minutes)
-        scheduler.add_job(send_reminder, "date", run_date=run_time, id=f"{chat_id}_{minutes}")
-        await update.message.reply_text(f"✅ {minutes} րոպե հետո կհիշեցնեմ՝ {text}")
-    except Exception as e:
-        await update.message.reply_text(f"Սխալ։ Օրինակ՝ /remind 10 Զանգել բժշկին")
-
 async def message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    text = update.message.text
-    await update.message.reply_text(f"Դուք գրեցիք՝ {text} 😊")
+    await update.message.reply_text("Հրամանը չճանաչվեց։ Օգտագործիր /help 😊")
 
 async def post_init(application):
     scheduler.start()
@@ -119,16 +131,27 @@ conv_handler = ConversationHandler(
     fallbacks=[CommandHandler("cancel", cancel)],
 )
 
+remind_handler = ConversationHandler(
+    entry_points=[CommandHandler("remind", remind_start)],
+    states={
+        REMIND_DAY: [MessageHandler(filters.TEXT & ~filters.COMMAND, remind_day)],
+        REMIND_TIME: [MessageHandler(filters.TEXT & ~filters.COMMAND, remind_time)],
+        REMIND_TEXT: [MessageHandler(filters.TEXT & ~filters.COMMAND, remind_text)],
+    },
+    fallbacks=[CommandHandler("cancel", cancel)],
+)
+
 app = ApplicationBuilder().token(TOKEN).post_init(post_init).build()
 app.add_handler(CommandHandler("start", start))
 app.add_handler(CommandHandler("help", help))
 app.add_handler(CommandHandler("about", about))
 app.add_handler(CommandHandler("weather", weather))
 app.add_handler(CommandHandler("rate", rate))
-app.add_handler(CommandHandler("remind", remind))
 app.add_handler(conv_handler)
+app.add_handler(remind_handler)
 app.add_handler(MessageHandler(filters.TEXT, message))
 app.run_polling()
+
 
 
 
