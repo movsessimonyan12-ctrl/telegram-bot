@@ -1,7 +1,7 @@
 from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, ConversationHandler, ContextTypes, filters
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 import requests
 from dotenv import load_dotenv
 import os
@@ -100,7 +100,8 @@ async def remind_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         time = context.user_data["remind_time"]
         text = update.message.text
         chat_id = update.message.chat_id
-        run_date = datetime.strptime(f"{day} {time}", "%d.%m.%Y %H:%M")
+        tz = timezone(timedelta(hours=4))
+        run_date = datetime.strptime(f"{day} {time}", "%d.%m.%Y %H:%M").replace(tzinfo=tz)
 
         async def send_reminder():
             await context.bot.send_message(chat_id=chat_id, text=f"🔔 {text}")
