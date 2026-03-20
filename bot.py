@@ -1,7 +1,7 @@
 from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, ConversationHandler, ContextTypes, filters
-from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from datetime import datetime, timezone, timedelta
+import asyncio
 import requests
 from dotenv import load_dotenv
 import os
@@ -9,8 +9,6 @@ import os
 load_dotenv()
 TOKEN = os.getenv("TOKEN")
 WEATHER_API_KEY = os.getenv("WEATHER_API_KEY")
-
-scheduler = AsyncIOScheduler()
 
 FROM_CUR, TO_CUR, AMOUNT = range(3)
 REMIND_DAY, REMIND_TIME, REMIND_TEXT = range(3, 6)
@@ -97,17 +95,24 @@ async def remind_time(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def remind_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         day = context.user_data["remind_day"]
-        time = context.user_data["remind_time"]
+        time_str = context.user_data["remind_time"]
         text = update.message.text
         chat_id = update.message.chat_id
         tz = timezone(timedelta(hours=4))
-        run_date = datetime.strptime(f"{day} {time}", "%d.%m.%Y %H:%M").replace(tzinfo=tz)
+        run_date = datetime.strptime(f"{day} {time_str}", "%d.%m.%Y %H:%M").replace(tzinfo=tz)
+        now = datetime.now(tz)
+        delay = (run_date - now).total_seconds()
+
+        if delay <= 0:
+            await update.message.reply_text("❌ Այդ ժամը արդեն անցել է։ Փորձեք ապագա ժամ։")
+            return ConversationHandler.END
 
         async def send_reminder():
+            await asyncio.sleep(delay)
             await context.bot.send_message(chat_id=chat_id, text=f"🔔 {text}")
 
-        scheduler.add_job(send_reminder, "date", run_date=run_date, id=f"{chat_id}_{run_date}")
-        await update.message.reply_text(f"✅ Կհիշեցնեմ {day}-ին ժամը {time}-ին՝ {text}")
+        asyncio.create_task(send_reminder())
+        await update.message.reply_text(f"✅ Կհիշեցնեմ {day}-ին ժամը {time_str}-ին՝ {text}")
     except:
         await update.message.reply_text("Սխալ։ Փորձեք նորից /remind")
     return ConversationHandler.END
@@ -118,9 +123,6 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Հրամանը չճանաչվեց։ Օգտագործիր /help 😊")
-
-async def post_init(application):
-    scheduler.start()
 
 conv_handler = ConversationHandler(
     entry_points=[CommandHandler("convert", convert_start)],
@@ -142,7 +144,7 @@ remind_handler = ConversationHandler(
     fallbacks=[CommandHandler("cancel", cancel)],
 )
 
-app = ApplicationBuilder().token(TOKEN).post_init(post_init).build()
+app = ApplicationBuilder().token(TOKEN).build()
 app.add_handler(CommandHandler("start", start))
 app.add_handler(CommandHandler("help", help))
 app.add_handler(CommandHandler("about", about))
