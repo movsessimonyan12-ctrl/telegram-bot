@@ -1,8 +1,10 @@
 from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, ConversationHandler, ContextTypes, filters
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from datetime import datetime, timezone, timedelta
 import asyncio
 import requests
+import random
 from dotenv import load_dotenv
 import os
 
@@ -10,12 +12,25 @@ load_dotenv()
 TOKEN = os.getenv("TOKEN")
 WEATHER_API_KEY = os.getenv("WEATHER_API_KEY")
 
+users = set()
+
+RECIPES = [
+    "🍽️ Խաշ\nԲաղադրատոմս՝ Եփել տավարի ոտքերը 6-8 ժամ, ավելացնել սխտոր, աղ։ Մատուցել լավաշով։",
+    "🍽️ Դոլմա\nԲաղադրատոմս՝ Խառնել աղացած միս, բրինձ, սոխ, համեմ։ Փաթաթել խաղողի տերևով, եփել 40 րոպե։",
+    "🍽️ Հարիսա\nԲաղադրատոմս՝ Եփել հավ և ցորեն 3-4 ժամ, անընդհատ խառնել մինչև շիլայի վերածվի։",
+    "🍽️ Բաստուրմա\nԲաղադրատոմս՝ Տավարի միս պատել չաման համեմով, չորացնել 2-3 շաբաթ։",
+    "🍽️ Ղափամա\nԲաղադրատոմս՝ Դատարկել դդումը, լցնել բրինձ, չամիչ, չորացրած մրգեր, թխել 2 ժամ։",
+    "🍽️ Ժենգյալով հաց\nԲաղադրատոմս՝ Բարակ խմոր, մեջը լցնել 10+ տեսակ կանաչի, թխել տապակի վրա։",
+    "🍽️ Քյուֆթա\nԲաղադրատոմս՝ Աղացած տավարի միս խառնել սոխ, համեմ, ձու։ Մեծ գնդիկներ պատրաստել, եփել արգանակի մեջ։",
+]
+
 FROM_CUR, TO_CUR, AMOUNT = range(3)
 REMIND_DAY, REMIND_TIME, REMIND_TEXT = range(3, 6)
 CURRENCIES = [["AMD", "USD", "EUR"], ["RUB", "GBP", "JPY"]]
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Բարև! Ես բոտ եմ 🤖\nՕգտագործիր /help հրամանը։")
+    users.add(update.message.chat_id)
+    await update.message.reply_text("Բարև! Ես բոտ եմ 🤖\nՕգտագործիր /help հրամանը։\n\nԱմեն օր կստանաս՝\n☀️ Երևանի եղանակը\n🍽️ Հայկական ուտեստի բաղադրատոմս")
 
 async def help(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Հրամաններ:\n/start - Սկսել\n/help - Օգնություն\n/about - Բոտի մասին\n/weather - Եղանակ\n/rate - Փոխարժեք\n/convert - Փոխարկել\n/remind - Հիշեցում")
@@ -121,6 +136,32 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Չեղարկվեց։", reply_markup=ReplyKeyboardRemove())
     return ConversationHandler.END
 
+async def send_daily_weather(bot):
+    url = f"http://api.openweathermap.org/data/2.5/weather?q=Yerevan&appid={WEATHER_API_KEY}&units=metric"
+    response = requests.get(url).json()
+    temp = response["main"]["temp"]
+    desc = response["weather"][0]["description"]
+    text = f"☀️ Բարի առավոտ!\n\nԵրևանի եղանակը՝\nՋերմաստիճան՝ {temp}°C\nԵղանակ՝ {desc}"
+    for chat_id in users:
+        try:
+            await bot.send_message(chat_id=chat_id, text=text)
+        except:
+            pass
+
+async def send_daily_recipe(bot):
+    recipe = random.choice(RECIPES)
+    for chat_id in users:
+        try:
+            await bot.send_message(chat_id=chat_id, text=recipe)
+        except:
+            pass
+
+async def post_init(application):
+    scheduler = AsyncIOScheduler(timezone="Asia/Yerevan")
+    scheduler.add_job(send_daily_weather, "cron", hour=9, minute=0, args=[application.bot])
+    scheduler.add_job(send_daily_recipe, "cron", hour=12, minute=0, args=[application.bot])
+    scheduler.start()
+
 async def message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Հրամանը չճանաչվեց։ Օգտագործիր /help 😊")
 
@@ -144,7 +185,7 @@ remind_handler = ConversationHandler(
     fallbacks=[CommandHandler("cancel", cancel)],
 )
 
-app = ApplicationBuilder().token(TOKEN).build()
+app = ApplicationBuilder().token(TOKEN).post_init(post_init).build()
 app.add_handler(CommandHandler("start", start))
 app.add_handler(CommandHandler("help", help))
 app.add_handler(CommandHandler("about", about))
@@ -154,6 +195,7 @@ app.add_handler(conv_handler)
 app.add_handler(remind_handler)
 app.add_handler(MessageHandler(filters.TEXT, message))
 app.run_polling()
+
 
 
 
